@@ -42,14 +42,30 @@ jobs:
           pip install -r requirements.txt
           pip install nuitka
 
-      # 🔍 Отладка: проверить версию Nuitka и доступные флаги
-      - name: 🔍 Debug Nuitka
+      # 🔧 ИЗВЛЕЧЕНИЕ ВЕРСИИ: парсим тег или используем ввод
+      - name: 🔧 Parse version for Windows
+        id: version
         run: |
-          nuitka --version
-          nuitka --help | findstr "windows"
+          # Определяем исходную версию
+          $raw = "${{ github.ref_name }}"
+          if ([string]::IsNullOrEmpty($raw) -or $raw -eq "main" -or $raw -eq "master") {
+            $raw = "${{ github.event.inputs.version }}"
+          }
+          
+          # Удаляем префикс 'v' или 'V'
+          $clean = $raw -replace '^v', '' -replace '^V', ''
+          
+          # Разбиваем на части и дополняем до 4-х чисел
+          $parts = $clean -split '\.' | Where-Object { $_ -match '^\d+$' }
+          while ($parts.Count -lt 4) { $parts += '0' }
+          $windowsVersion = ($parts[0..3] -join '.')
+          
+          # Сохраняем в output для использования в следующих шагах
+          echo "version=$windowsVersion" >> $env:GITHUB_OUTPUT
+          echo "✓ Версия для Windows: $windowsVersion"
         shell: pwsh
 
-      # 🛠️ Сборка с ПРАВИЛЬНЫМИ флагами метаданных
+      # 🛠️ Сборка с ПРАВИЛЬНОЙ версией
       - name: 🛠️ Compile with Nuitka
         run: |
           nuitka `
@@ -62,24 +78,23 @@ jobs:
             --nofollow-import-to=pytest,setuptools,pip,wheel `
             --python-flag=no_site `
             --output-filename=YandexMusicDownloader.exe `
-            --file-version=${{ github.ref_name || github.event.inputs.version }}.0 `
-            --product-version=${{ github.ref_name || github.event.inputs.version }}.0 `
+            --file-version=${{ steps.version.outputs.version }} `
+            --product-version=${{ steps.version.outputs.version }} `
             --file-description="Download tracks from Yandex Music in maximum quality" `
             --product-name="Yandex Music Downloader" `
             --company-name="KromSystems" `
-            --copyright="© 2026 KromSystems. Powered by J.A.R.V.I.S. core" `
+            --copyright="(c) 2026 KromSystems. Powered by J.A.R.V.I.S. core" `
             main.py
         shell: pwsh
-        continue-on-error: false  # Остановить сборку при ошибке компиляции
 
-      # ✅ Проверка, что .exe создан
+      # ✅ Проверка создания файла
       - name: ✅ Verify executable
         run: |
           if (Test-Path "dist\YandexMusicDownloader.exe") {
             Write-Host "✓ YandexMusicDownloader.exe создан" -ForegroundColor Green
             Get-ChildItem "dist\YandexMusicDownloader.exe" | Select-Object Name, Length
           } else {
-            Write-Error "✗ Файл не найден! Проверьте логи компиляции выше."
+            Write-Error "✗ Файл не найден!"
             exit 1
           }
         shell: pwsh
@@ -95,9 +110,9 @@ jobs:
       - name: 🚀 Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "🎵 Yandex Music Downloader ${{ github.ref_name || github.event.inputs.version }}"
+          name: "🎵 Yandex Music Downloader ${{ steps.version.outputs.version }}"
           body: |
-            ## 🤖 Yandex Music Downloader ${{ github.ref_name || github.event.inputs.version }}
+            ## 🤖 Yandex Music Downloader v${{ steps.version.outputs.version }}
 
             ### ✨ Особенности
             - ⚡ Асинхронная загрузка через `yandex-music-api`
@@ -127,8 +142,3 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: ✅ Build complete
-        run: |
-          Write-Host "🎉 Сборка завершена!" -ForegroundColor Green
-        shell: pwsh

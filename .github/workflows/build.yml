@@ -1,0 +1,142 @@
+# .github/workflows/build.yml
+name: 🚀 Build & Release
+
+on:
+  # Запуск по тегу: git tag v2.0 && git push origin v2.0
+  push:
+    tags:
+      - 'v*'
+  # Ручной запуск из вкладки Actions
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v2.0.1)'
+        required: true
+        default: 'v2.0.1'
+
+permissions:
+  contents: write  # Для создания релизов
+
+jobs:
+  build-windows:
+    name: 🪟 Build on Windows
+    runs-on: windows-latest
+    
+    steps:
+      # ─────────────────────────────────────────
+      # 1️⃣ Checkout кода
+      # ─────────────────────────────────────────
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────
+      # 2️⃣ Установка Python
+      # ─────────────────────────────────────────
+      - name: 🐍 Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+
+      # ─────────────────────────────────────────
+      # 3️⃣ Установка MSVC Build Tools (для Nuitka)
+      # ─────────────────────────────────────────
+      - name: 🔧 Install MSVC Build Tools
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          toolset: 14.3  # VS 2022
+
+      # ─────────────────────────────────────────
+      # 4️⃣ Установка зависимостей
+      # ─────────────────────────────────────────
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install nuitka
+
+      # ─────────────────────────────────────────
+      # 5️⃣ Сборка .exe через Nuitka
+      # ─────────────────────────────────────────
+      - name: 🛠️ Compile with Nuitka
+        run: |
+          nuitka `
+            --standalone `
+            --onefile `
+            --windows-console-mode=force `
+            --remove-output `
+            --assume-yes-for-downloads `
+            --include-package=yandex_music,aiohttp,aiofiles `
+            --nofollow-import-to=pytest,setuptools,pip,wheel `
+            --python-flag=no_site `
+            --output-filename=YandexMusicDownloader.exe `
+            --windows-file-version=${{ github.ref_name || github.event.inputs.version }}.0 `
+            --windows-product-version=${{ github.ref_name || github.event.inputs.version }}.0 `
+            --windows-company-name="KromSystems" `
+            --windows-product-name="Yandex Music Downloader" `
+            --windows-file-description="Download tracks from Yandex Music in maximum quality" `
+            --copyright="© 2026 KromSystems. Powered by J.A.R.V.I.S. core" `
+            --windows-app-name="YandexMusicDownloader" `
+            main.py
+        shell: pwsh
+
+      # ─────────────────────────────────────────
+      # 6️⃣ Подготовка артефактов
+      # ─────────────────────────────────────────
+      - name: 📦 Prepare release assets
+        run: |
+          mkdir release-assets
+          Copy-Item "dist\YandexMusicDownloader.exe" "release-assets\"
+          Copy-Item "README.md" "release-assets\"
+          Copy-Item "LICENSE" "release-assets\" -ErrorAction SilentlyContinue
+        shell: pwsh
+
+      # ─────────────────────────────────────────
+      # 7️⃣ Создание GitHub Release и загрузка .exe
+      # ─────────────────────────────────────────
+      - name: 🚀 Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "🎵 Yandex Music Downloader ${{ github.ref_name || github.event.inputs.version }}"
+          body: |
+            ## 🤖 Yandex Music Downloader ${{ github.ref_name || github.event.inputs.version }}
+
+            ### ✨ Что нового
+            - ⚡ Асинхронная загрузка через `yandex-music-api`
+            - 🎨 Интерфейс в стиле Тони Старка (StarkUI)
+            - 🔐 Токен вводится вручную — не сохраняется на диск
+            - 🛠️ Скомпилировано через Nuitka для максимальной скорости
+
+            ### 📥 Установка
+            1. Скачайте `YandexMusicDownloader.exe`
+            2. Запустите файл
+            3. Получите токен через расширение браузера (откроется автоматически)
+            4. Вставьте токен и укажите папку для скачивания
+
+            ### ⚠️ Примечания
+            - Требуется подписка Яндекс.Плюс для качества FLAC
+            - При первом запуске антивирус может предупредить — это ложное срабатывание на Python-приложения
+            - Исходный код: ${{ github.server_url }}/${{ github.repository }}
+
+            ---
+            *Powered by J.A.R.V.I.S. core • © 2026 KromSystems*
+          files: |
+            release-assets/YandexMusicDownloader.exe
+            release-assets/README.md
+            release-assets/LICENSE
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ─────────────────────────────────────────
+      # 8️⃣ Логирование завершения
+      # ─────────────────────────────────────────
+      - name: ✅ Build complete
+        run: |
+          Write-Host "🎉 Сборка завершена!" -ForegroundColor Green
+          Write-Host "📦 Файл: YandexMusicDownloader.exe" -ForegroundColor Cyan
+          Write-Host "🔗 Релиз: ${{ github.server_url }}/${{ github.repository }}/releases" -ForegroundColor Yellow
+        shell: pwsh
